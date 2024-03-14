@@ -11,7 +11,7 @@ import base64
 import pickle
 
 # Anthropic API configuration
-api_key = "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"
+api_key = ""
 client = anthropic.Client(api_key=api_key)
 
 
