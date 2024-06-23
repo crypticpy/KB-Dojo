@@ -32,10 +32,10 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 PAGE_TITLE = "KB Dojo"
 PAGE_LAYOUT = "wide"
 
-# Styling
+# Title Styling
 TITLE_STYLE = """
     <style>
-        .title {
+        .kb-dojo-title {
             font-size: 2.5em;
             font-weight: bold;
             text-align: center;
@@ -50,6 +50,9 @@ TITLE_STYLE = """
         }
     </style>
 """
+
+# Default Prompt Role
+DEFAULT_PROMPT_ROLE = "You are a helpful assistant who writes knowledge base articles in KCS 6 format. Always respond in markdown."
 
 # Error messages
 API_ERROR_MESSAGE = "OpenAI API Error: {}"

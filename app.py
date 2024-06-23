@@ -1,7 +1,7 @@
 import asyncio
 import streamlit as st
 from openai import AsyncOpenAI
-from config import OPENAI_API_KEY, DEFAULT_PROMPT_ROLE
+from config import OPENAI_API_KEY, DEFAULT_PROMPT_ROLE, USE_AZURE, TITLE_STYLE
 from utils import file_handlers, prompt_utils, pandoc_utils
 from layout import main_content, sidebar
 import io
@@ -51,10 +51,12 @@ async def process_article_async(title: str, content: str, options: dict, selecte
     perspectives = options['Perspective']
     languages = options['Translation Languages']
 
-    # Step 1: Reauthoring (including template formatting if provided)
-    if 'Reauthor Content' in actions or 'Format to Template' in actions:
-        processed_content = await reauthor_content(processed_content, template_content, perspectives, selected_model,
-                                                   options)
+    # Step 1: Generate or Reauthor Content
+    if 'Generate Content' in actions:
+        processed_content = await generate_content(title, content, perspectives, selected_model, options)
+        logger.debug(f"Content after generation: {processed_content[:100]}...")
+    elif 'Reauthor Content' in actions or 'Format to Template' in actions:
+        processed_content = await reauthor_content(processed_content, template_content, perspectives, selected_model, options)
         logger.debug(f"Content after reauthoring and/or formatting: {processed_content[:100]}...")
 
     # Step 2: Apply perspectives (if not already done in reauthoring)
@@ -80,11 +82,29 @@ async def process_article_async(title: str, content: str, options: dict, selecte
 
     return results
 
+async def generate_content(title: str, content: str, perspectives: list, selected_model: str, options: dict) -> str:
+    logger.debug("Generating content")
+    prompt = f"Generate a detailed knowledge base article based on the following title and content. If the content is a specific request (e.g., 'write a recipe for chocolate cake'), create an article that fulfills that request. Title: {title}\n\nContent or Request: {content}\n\n"
+
+    if perspectives:
+        prompt += f"Include separate sections for the following perspectives: {', '.join(perspectives)}.\n\n"
+
+    prompt += "Provide the generated content in markdown format, without any additional comments or questions."
+
+    generated_content = await send_to_openai_api_async(prompt, selected_model, options)
+    if generated_content is None or generated_content.strip() == "":
+        logger.error("Content generation failed or returned empty content")
+        return content  # Return original content if generation fails
+    return generated_content
+
 
 async def reauthor_content(content: str, template_content: str, perspectives: list, selected_model: str,
                            options: dict) -> str:
     logger.debug("Reauthoring content")
     prompt = f"Reauthor the following content"
+
+    if not content.strip():
+        prompt = "Generate a knowledge base article based on the following template:"
 
     if template_content:
         prompt += f", using the provided template as a guide for formatting:\n\nTemplate:\n{template_content}\n\nContent to reauthor:"
@@ -138,23 +158,68 @@ async def process_multiple_articles_async(titles, contents, options, selected_mo
 def main():
     st.set_page_config(page_title="KB Dojo", layout="wide")
 
+    st.markdown(TITLE_STYLE, unsafe_allow_html=True)
+    st.markdown('<div class="kb-dojo-title">KB Dojo</div>', unsafe_allow_html=True)
     st.markdown("""
         <style>
-            .title {
-                font-size: 2.5em;
-                font-weight: bold;
-                text-align: center;
-                margin-bottom: 20px;
-                color: #4F8BF9;
-                animation: glow 2s infinite alternate;
+            .generated-content {
+                font-family: Arial, sans-serif;
+                color: var(--text-color);
             }
-            @keyframes glow {
-                0% { filter: drop-shadow(0 0 5px #FFA07A); }
-                50% { filter: drop-shadow(0 0 20px #4F8BF9); }
-                100% { filter: drop-shadow(0 0 5px #FFA07A); }
+            .generated-content h1 {
+                font-size: 1.8em;
+                color: var(--header-color);
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 0.3em;
+            }
+            .generated-content h2 {
+                font-size: 1.5em;
+                color: var(--header-color);
+            }
+            .generated-content h3 {
+                font-size: 1.3em;
+                color: var(--header-color);
+            }
+            .generated-content p {
+                font-size: 1em;
+                line-height: 1.6;
+                margin-bottom: 1em;
+            }
+            .generated-content ul, .generated-content ol {
+                margin-bottom: 1em;
+                padding-left: 2em;
+            }
+            .generated-content li {
+                margin-bottom: 0.5em;
+            }
+            .generated-content code {
+                background-color: var(--code-bg-color);
+                color: var(--code-text-color);
+                padding: 0.2em 0.4em;
+                border-radius: 3px;
+                font-family: monospace;
+            }
+            /* Light mode */
+            @media (prefers-color-scheme: light) {
+                .generated-content {
+                    --text-color: #0a0a0a;  /* Very dark gray, almost black */
+                    --header-color: #000000;  /* Pure black for headers */
+                    --border-color: #cccccc;
+                    --code-bg-color: #f0f0f0;
+                    --code-text-color: #0a0a0a;
+                }
+            }
+            /* Dark mode */
+            @media (prefers-color-scheme: dark) {
+                .generated-content {
+                    --text-color: #e0e0e0;
+                    --header-color: #ffffff;
+                    --border-color: #555555;
+                    --code-bg-color: #2a2a2a;
+                    --code-text-color: #f0f0f0;
+                }
             }
         </style>
-        <div class="title">KB Dojo</div>
     """, unsafe_allow_html=True)
 
     if 'results' not in st.session_state:
@@ -206,7 +271,7 @@ def display_results(results):
     st.subheader("Generated Articles")
     for i, (docx_bytes, title, api_response, lang) in enumerate(results):
         with st.expander(f"{title} - {lang}"):
-            st.markdown(api_response)
+            st.markdown(f'<div class="generated-content">{api_response}</div>', unsafe_allow_html=True)
             if docx_bytes is not None:
                 st.download_button(
                     label=f"Download {title} ({lang}) as Word",
