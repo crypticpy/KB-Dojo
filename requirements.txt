@@ -32,6 +32,3 @@ asyncio
 
 # ZIP file handling
 zipfile36
-
-# Logging
-logging
