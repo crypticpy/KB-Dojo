@@ -28,7 +28,7 @@ python-dateutil
 tqdm
 
 # Async support for Streamlit
-asyncio
+# asyncio
 
 # ZIP file handling
 zipfile36
