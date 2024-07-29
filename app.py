@@ -1,7 +1,8 @@
 import asyncio
 import streamlit as st
-from openai import AsyncOpenAI
-from config import OPENAI_API_KEY, DEFAULT_PROMPT_ROLE, USE_AZURE, TITLE_STYLE
+from openai import AzureOpenAI
+from config import DEFAULT_PROMPT_ROLE, TITLE_STYLE, AZURE_OPENAI_API_KEY, \
+    AZURE_OPENAI_API_VERSION, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_NAME
 from utils import file_handlers, prompt_utils, pandoc_utils
 from layout import main_content, sidebar
 import io
@@ -16,14 +17,18 @@ logger = logging.getLogger(__name__)
 # Initialize AsyncOpenAI client
 @st.cache_resource
 def get_openai_client():
-    return AsyncOpenAI(api_key=OPENAI_API_KEY)
+    return AzureOpenAI(
+        api_key=AZURE_OPENAI_API_KEY,
+        api_version=AZURE_OPENAI_API_VERSION,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT
+    )
 
 
 async def send_to_openai_api_async(prompt: str, selected_model: str, options: dict) -> str:
     client = get_openai_client()
     try:
         completion = await client.chat.completions.create(
-            model=selected_model,
+            model=AZURE_OPENAI_DEPLOYMENT_NAME,  # Use deployment name instead of selected_model
             messages=[
                 {"role": "system", "content": DEFAULT_PROMPT_ROLE},
                 {"role": "user", "content": prompt}
@@ -33,8 +38,8 @@ async def send_to_openai_api_async(prompt: str, selected_model: str, options: di
         )
         return completion.choices[0].message.content.strip()
     except Exception as e:
-        logger.error(f"OpenAI API Error: {str(e)}")
-        st.error(f"OpenAI API Error: {str(e)}")
+        logger.error(f"Azure OpenAI API Error: {str(e)}")
+        st.error(f"Azure OpenAI API Error: {str(e)}")
         return None
 
 

@@ -1,9 +1,15 @@
 import re
 import os
-from openai import AsyncOpenAI
+from openai import AzureOpenAI
+from config import AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_VERSION, AZURE_OPENAI_DEPLOYMENT_NAME
+
 import streamlit as st
 
-client = AsyncOpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+client = AzureOpenAI(
+    api_key=AZURE_OPENAI_API_KEY,
+    api_version=AZURE_OPENAI_API_VERSION,
+    azure_endpoint=AZURE_OPENAI_ENDPOINT
+)
 
 
 def validate_headers_and_numbers(content: str) -> str:
@@ -108,7 +114,7 @@ async def translate_content(content: str, language: str, selected_model: str, op
 
     try:
         completion = await client.chat.completions.create(
-            model=selected_model,
+            model=AZURE_OPENAI_DEPLOYMENT_NAME,
             messages=[
                 {"role": "system", "content": "You are a professional translator skilled in preserving markdown formatting."},
                 {"role": "user", "content": prompt}
