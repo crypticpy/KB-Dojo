@@ -48,9 +48,7 @@ def extract_pdf_content(uploaded_file, is_template: bool) -> str:
         The extracted text content as a string.
     """
     pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
-    content = []
-    for page in pdf_reader.pages:
-        content.append(page.extract_text())
+    content = [page.extract_text() for page in pdf_reader.pages]
     return '\n'.join(content)
 
 

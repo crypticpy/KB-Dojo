@@ -1,5 +1,5 @@
 import streamlit as st
-from config import MODEL_OPTIONS, LANGUAGE_OPTIONS, CONSISTENCY_OPTIONS, AZURE_OPENAI_DEPLOYMENT_NAME
+from config import LANGUAGE_OPTIONS, CONSISTENCY_OPTIONS
 
 def setup_sidebar(workflow_option: str):
     options = {}  # Initialize the options dictionary
@@ -7,13 +7,8 @@ def setup_sidebar(workflow_option: str):
     with st.sidebar:
         st.info("Using Azure OpenAI service")
 
-        st.subheader('AI Model Selection')
-        selected_model = st.selectbox(
-            'Choose AI Model',
-            MODEL_OPTIONS,
-            index=0,
-            format_func=lambda x: x.replace('-', ' ').title()
-        )
+        # Debug Mode
+        options['Debug Mode'] = st.checkbox('Enable Debug Mode', value=False)
 
         st.subheader('KB Article Options')
         options['Actions'] = st.multiselect(
@@ -59,4 +54,4 @@ def setup_sidebar(workflow_option: str):
             help="Maximum number of tokens to generate. One token is roughly 4 characters for normal English text."
         )
 
-    return options, AZURE_OPENAI_DEPLOYMENT_NAME
+    return options

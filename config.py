@@ -1,27 +1,13 @@
 import os
-from typing import List
-
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# OpenAI Configuration
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Azure OpenAI Configuration
 AZURE_OPENAI_API_KEY = os.getenv('AZURE_OPENAI_API_KEY')
 AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_API_BASE')
 AZURE_OPENAI_API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION', '2023-05-15')
 AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME')
-
-# Determine which service to use
-USE_AZURE = True  # Changed to always use Azure
-
-# Model options
-AZURE_MODEL_OPTIONS = [AZURE_OPENAI_DEPLOYMENT_NAME]  # Changed to use deployment name
-OPENAI_MODEL_OPTIONS = ['gpt-4o']  # Kept for reference
-
-MODEL_OPTIONS = AZURE_MODEL_OPTIONS  # Always use Azure model options
 
 # Application settings
 LANGUAGE_OPTIONS = ['English', 'Spanish', 'French', 'German', 'Japanese', 'Chinese']

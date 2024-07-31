@@ -10,9 +10,12 @@ import zipfile
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
+def debug_print(message):
+    if st.session_state.debug_mode:
+        st.write(f"DEBUG: {message}")
 
 # Initialize AsyncOpenAI client
 @st.cache_resource
@@ -23,12 +26,11 @@ def get_openai_client():
         azure_endpoint=AZURE_OPENAI_ENDPOINT
     )
 
-
-async def send_to_openai_api_async(prompt: str, selected_model: str, options: dict) -> str:
+async def send_to_openai_api_async(prompt: str, options: dict) -> str:
     client = get_openai_client()
     try:
         completion = await client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT_NAME,  # Use deployment name instead of selected_model
+            model=AZURE_OPENAI_DEPLOYMENT_NAME,
             messages=[
                 {"role": "system", "content": DEFAULT_PROMPT_ROLE},
                 {"role": "user", "content": prompt}
@@ -38,15 +40,18 @@ async def send_to_openai_api_async(prompt: str, selected_model: str, options: di
         )
         return completion.choices[0].message.content.strip()
     except Exception as e:
-        logger.error(f"Azure OpenAI API Error: {str(e)}")
-        st.error(f"Azure OpenAI API Error: {str(e)}")
+        error_message = f"Azure OpenAI API Error: {str(e)}"
+        logger.error(error_message)
+        if st.session_state.debug_mode:
+            st.error(error_message)
+        else:
+            st.error("An error occurred while processing your request. Please try again.")
         return None
 
-
-async def process_article_async(title: str, content: str, options: dict, selected_model: str,
+async def process_article_async(title: str, content: str, options: dict,
                                 template_content: str = None) -> list:
-    logger.debug(f"Processing article: {title}")
-    logger.debug(f"Initial content: {content[:100]}...")
+    debug_print(f"Processing article: {title}")
+    debug_print(f"Initial content: {content[:100]}...")
 
     results = []
     original_content = content
@@ -58,22 +63,22 @@ async def process_article_async(title: str, content: str, options: dict, selecte
 
     # Step 1: Generate or Reauthor Content
     if 'Generate Content' in actions:
-        processed_content = await generate_content(title, content, perspectives, selected_model, options)
-        logger.debug(f"Content after generation: {processed_content[:100]}...")
+        processed_content = await generate_content(title, content, perspectives, options)
+        debug_print(f"Content after generation: {processed_content[:100]}...")
     elif 'Reauthor Content' in actions or 'Format to Template' in actions:
-        processed_content = await reauthor_content(processed_content, template_content, perspectives, selected_model, options)
-        logger.debug(f"Content after reauthoring and/or formatting: {processed_content[:100]}...")
+        processed_content = await reauthor_content(processed_content, template_content, perspectives, options)
+        debug_print(f"Content after reauthoring and/or formatting: {processed_content[:100]}...")
 
     # Step 2: Apply perspectives (if not already done in reauthoring)
     if perspectives and 'Reauthor Content' not in actions:
         processed_content = prompt_utils.create_perspective_sections(processed_content, perspectives)
-        logger.debug(f"Content after applying perspectives: {processed_content[:100]}...")
+        debug_print(f"Content after applying perspectives: {processed_content[:100]}...")
 
     # Step 3: Translation
     if 'Translate' in actions:
         for lang in languages:
-            translated_content = await prompt_utils.translate_content(processed_content, lang, selected_model, options)
-            logger.debug(f"Translated content ({lang}): {translated_content[:100]}...")
+            translated_content = await prompt_utils.translate_content(processed_content, lang, options)
+            debug_print(f"Translated content ({lang}): {translated_content[:100]}...")
 
             # Convert markdown to Word
             docx_bytes = pandoc_utils.save_as_word(translated_content)
@@ -87,8 +92,8 @@ async def process_article_async(title: str, content: str, options: dict, selecte
 
     return results
 
-async def generate_content(title: str, content: str, perspectives: list, selected_model: str, options: dict) -> str:
-    logger.debug("Generating content")
+async def generate_content(title: str, content: str, perspectives: list, options: dict) -> str:
+    debug_print("Generating content")
     prompt = f"Generate a detailed knowledge base article based on the following title and content. If the content is a specific request (e.g., 'write a recipe for chocolate cake'), create an article that fulfills that request. Title: {title}\n\nContent or Request: {content}\n\n"
 
     if perspectives:
@@ -96,17 +101,15 @@ async def generate_content(title: str, content: str, perspectives: list, selecte
 
     prompt += "Provide the generated content in markdown format, without any additional comments or questions."
 
-    generated_content = await send_to_openai_api_async(prompt, selected_model, options)
+    generated_content = await send_to_openai_api_async(prompt, options)
     if generated_content is None or generated_content.strip() == "":
         logger.error("Content generation failed or returned empty content")
         return content  # Return original content if generation fails
     return generated_content
 
-
-async def reauthor_content(content: str, template_content: str, perspectives: list, selected_model: str,
-                           options: dict) -> str:
-    logger.debug("Reauthoring content")
-    prompt = f"Reauthor the following content"
+async def reauthor_content(content: str, template_content: str, perspectives: list, options: dict) -> str:
+    debug_print("Reauthoring content")
+    prompt = "Reauthor the following content"
 
     if not content.strip():
         prompt = "Generate a knowledge base article based on the following template:"
@@ -123,26 +126,18 @@ async def reauthor_content(content: str, template_content: str, perspectives: li
 
     prompt += "Provide the reauthored content directly, without any additional comments or questions."
 
-    reauthored_content = await send_to_openai_api_async(prompt, selected_model, options)
+    reauthored_content = await send_to_openai_api_async(prompt, options)
     if reauthored_content is None or reauthored_content.strip() == "":
         logger.error("Reauthoring failed or returned empty content")
         return content  # Return original content if reauthoring fails
     return reauthored_content
 
-
-async def format_to_template(content: str, template: str, selected_model: str, options: dict) -> str:
-    logger.debug("Formatting content to template")
+async def format_to_template(content: str, template: str, options: dict) -> str:
+    debug_print("Formatting content to template")
     prompt = f"Format the following content to match the provided template structure, maintaining the original information:\n\nContent:\n{content}\n\nTemplate:\n{template}"
-    return await send_to_openai_api_async(prompt, selected_model, options)
+    return await send_to_openai_api_async(prompt, options)
 
-
-async def translate_content(content: str, language: str, selected_model: str, options: dict) -> str:
-    logger.debug(f"Translating content to {language}")
-    prompt = f"Translate the following content to {language}, maintaining its original structure and formatting. Provide the translated content directly, without any additional comments or questions:\n\n{content}"
-    return await send_to_openai_api_async(prompt, selected_model, options)
-
-
-async def process_multiple_articles_async(titles, contents, options, selected_model, template_content):
+async def process_multiple_articles_async(titles, contents, options, template_content):
     all_results = []
     total_operations = len(titles) * (len(options['Actions']) + (
         len(options['Translation Languages']) if 'Translate' in options['Actions'] else 0))
@@ -150,15 +145,14 @@ async def process_multiple_articles_async(titles, contents, options, selected_mo
     completed_operations = 0
 
     for title, content in zip(titles, contents):
-        logger.debug(f"Processing article: {title}")
-        results = await process_article_async(title, content, options, selected_model, template_content)
+        debug_print(f"Processing article: {title}")
+        results = await process_article_async(title, content, options, template_content)
         all_results.extend(results)
         completed_operations += len(options['Actions']) + (
             len(options['Translation Languages']) if 'Translate' in options['Actions'] else 0)
         progress_bar.progress(completed_operations / total_operations)
 
     return all_results
-
 
 def main():
     st.set_page_config(page_title="KB Dojo", layout="wide")
@@ -236,7 +230,10 @@ def main():
         kb_article_titles, kb_article_contents, workflow_option, template_file = main_content.setup_main_content()
 
     with col2:
-        options, selected_model = sidebar.setup_sidebar(workflow_option)
+        options = sidebar.setup_sidebar(workflow_option)
+
+    # Set debug mode in session state
+    st.session_state.debug_mode = options.get('Debug Mode', False)
 
     if template_file:
         template_content = file_handlers.load_file_content(template_file, is_template=True)
@@ -244,37 +241,40 @@ def main():
         template_content = None
 
     if st.button('Generate KB Article'):
-        logger.debug(f"Workflow option: {workflow_option}")
-        logger.debug(f"Selected model: {selected_model}")
-        logger.debug(f"Selected options: {options}")
+        debug_print(f"Workflow option: {workflow_option}")
+        debug_print(f"Selected options: {options}")
 
         if workflow_option == "Single File":
-            logger.debug(f"Single file content: {kb_article_contents[0][:100]}...")
+            debug_print(f"Single file content: {kb_article_contents[0][:100]}...")
             st.session_state.results = asyncio.run(
-                process_single_article(kb_article_titles[0], kb_article_contents[0], options, selected_model,
-                                       template_content))
+                process_single_article(kb_article_titles[0], kb_article_contents[0], options, template_content))
         else:
-            logger.debug(f"Multiple files, number of files: {len(kb_article_titles)}")
+            debug_print(f"Multiple files, number of files: {len(kb_article_titles)}")
             st.session_state.results = asyncio.run(
-                process_multiple_articles(kb_article_titles, kb_article_contents, options, selected_model,
-                                          template_content))
+                process_multiple_articles(kb_article_titles, kb_article_contents, options, template_content))
 
         display_results(st.session_state.results)
 
+    if st.session_state.debug_mode:
+        st.subheader("Debug Information")
+        st.json({
+            "Workflow Option": workflow_option,
+            "Options": options,
+            "Number of Articles": len(kb_article_titles),
+            "Template Used": template_file is not None,
+        })
 
-async def process_single_article(title, content, options, selected_model, template_content):
+async def process_single_article(title, content, options, template_content):
     with st.spinner('Generating KB article...'):
-        return await process_article_async(title, content, options, selected_model, template_content)
+        return await process_article_async(title, content, options, template_content)
 
-
-async def process_multiple_articles(titles, contents, options, selected_model, template_content):
+async def process_multiple_articles(titles, contents, options, template_content):
     with st.spinner('Generating KB articles...'):
-        return await process_multiple_articles_async(titles, contents, options, selected_model, template_content)
-
+        return await process_multiple_articles_async(titles, contents, options, template_content)
 
 def display_results(results):
     st.subheader("Generated Articles")
-    for i, (docx_bytes, title, api_response, lang) in enumerate(results):
+    for docx_bytes, title, api_response, lang in results:
         with st.expander(f"{title} - {lang}"):
             st.markdown(f'<div class="generated-content">{api_response}</div>', unsafe_allow_html=True)
             if docx_bytes is not None:
@@ -290,7 +290,6 @@ def display_results(results):
     if len(results) > 1:
         create_zip_download(results)
 
-
 def create_zip_download(results):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
@@ -303,7 +302,6 @@ def create_zip_download(results):
         file_name="kb_articles.zip",
         mime="application/zip",
     )
-
 
 if __name__ == "__main__":
     pandoc_utils.ensure_pandoc()

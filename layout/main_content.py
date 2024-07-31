@@ -36,8 +36,7 @@ def handle_single_file_workflow():
     )
 
     if uploaded_file is not None:
-        file_content = file_handlers.load_file_content(uploaded_file)
-        if file_content:
+        if file_content := file_handlers.load_file_content(uploaded_file):
             kb_article_title = uploaded_file.name
             kb_article_content = file_content
             st.success(f"File '{uploaded_file.name}' loaded successfully!")
@@ -63,8 +62,7 @@ def handle_multiple_files_workflow():
 
     if uploaded_files:
         for file in uploaded_files:
-            content = file_handlers.load_file_content(file)
-            if content:
+            if content := file_handlers.load_file_content(file):
                 kb_article_titles.append(file.name)
                 kb_article_contents.append(content)
 

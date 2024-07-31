@@ -41,7 +41,7 @@ def ensure_pandoc():
 
 
 @st.cache_data
-def save_as_word(markdown_content: str) -> BytesIO:
+def save_as_word(markdown_content: str) -> BytesIO | None:
     """
     Convert the given Markdown content to a Word document and return a BytesIO object.
 
