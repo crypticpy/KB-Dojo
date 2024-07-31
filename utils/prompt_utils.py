@@ -1,21 +1,15 @@
 import logging
-
 import streamlit as st
-from openai import AzureOpenAI
-
+import aiohttp
 from config import AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_VERSION, AZURE_OPENAI_DEPLOYMENT_NAME
 
 logger = logging.getLogger(__name__)
 
-client = AzureOpenAI(
-    api_key=AZURE_OPENAI_API_KEY,
-    api_version=AZURE_OPENAI_API_VERSION,
-    azure_endpoint=AZURE_OPENAI_ENDPOINT
-)
 
 def debug_print(message):
     if st.session_state.get('debug_mode', False):
         st.write(f"DEBUG: {message}")
+
 
 def validate_headers_and_numbers(content: str) -> str:
     """
@@ -28,6 +22,7 @@ def validate_headers_and_numbers(content: str) -> str:
         content = "Document Number: \n" + content
     return content
 
+
 def create_perspective_sections(content: str, perspectives: list) -> str:
     """
     Create sections for different perspectives within the content.
@@ -38,6 +33,7 @@ def create_perspective_sections(content: str, perspectives: list) -> str:
     ]
     return "\n".join(sections)
 
+
 def create_base_prompt(title: str, content: str, template_content: str = None, options: dict = None) -> str:
     """
     Create the base prompt for the OpenAI API.
@@ -46,6 +42,7 @@ def create_base_prompt(title: str, content: str, template_content: str = None, o
         return f"\n- Construct a KB article from the following user information using the provided template: Title\n\n{title}\n\nContent\n\n{content}\n\nTemplate\n\n{template_content}\n\n"
     else:
         return f"\n- Construct a KB article from the following user information: Title\n\n{title}\n\nContent\n\n{content}\n\n"
+
 
 def modify_prompt_with_options(prompt: str, options: dict) -> str:
     """
@@ -64,6 +61,48 @@ def modify_prompt_with_options(prompt: str, options: dict) -> str:
 
     return prompt
 
+
+async def send_to_openai_api_async(prompt: str, options: dict) -> str:
+    async with aiohttp.ClientSession() as session:
+        headers = {
+            "Content-Type": "application/json",
+            "api-key": AZURE_OPENAI_API_KEY,
+        }
+        payload = {
+            "model": AZURE_OPENAI_DEPLOYMENT_NAME,
+            "messages": [
+                {"role": "system",
+                 "content": "You are a professional translator skilled in preserving markdown formatting."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": options.get('Temperature', 0.1),
+            "max_tokens": options.get('Max Tokens', 4000)
+        }
+        url = f"{AZURE_OPENAI_ENDPOINT}/openai/deployments/{AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version={AZURE_OPENAI_API_VERSION}"
+
+        try:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data['choices'][0]['message']['content'].strip()
+                else:
+                    error_message = f"Azure OpenAI API Error: {response.status} - {await response.text()}"
+                    logger.error(error_message)
+                    if options.get('Debug Mode', False):
+                        st.error(error_message)
+                    else:
+                        st.error("An error occurred while processing your request. Please try again.")
+                    return None
+        except Exception as e:
+            error_message = f"Azure OpenAI API Error: {str(e)}"
+            logger.error(error_message)
+            if options.get('Debug Mode', False):
+                st.error(error_message)
+            else:
+                st.error("An error occurred while processing your request. Please try again.")
+            return None
+
+
 async def translate_content(content: str, language: str, options: dict) -> str:
     """
     Translate the given content to the specified language while preserving markdown formatting.
@@ -78,16 +117,8 @@ async def translate_content(content: str, language: str, options: dict) -> str:
     """
 
     try:
-        completion = await client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT_NAME,
-            messages=[
-                {"role": "system", "content": "You are a professional translator skilled in preserving markdown formatting."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=options.get('Temperature', 0.1),
-            max_tokens=options.get('Max Tokens', 4000)
-        )
-        return completion.choices[0].message.content.strip()
+        translated_content = await send_to_openai_api_async(prompt, options)
+        return translated_content
     except Exception as e:
         error_message = f"Translation error: {str(e)}"
         logger.error(error_message)

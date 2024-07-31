@@ -1,52 +1,69 @@
 import asyncio
 import streamlit as st
-from openai import AzureOpenAI
-from config import DEFAULT_PROMPT_ROLE, TITLE_STYLE, AZURE_OPENAI_API_KEY, \
-    AZURE_OPENAI_API_VERSION, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_NAME
+from config import AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_VERSION, AZURE_OPENAI_DEPLOYMENT_NAME, \
+    TITLE_STYLE, DEFAULT_PROMPT_ROLE
 from utils import file_handlers, prompt_utils, pandoc_utils
 from layout import main_content, sidebar
 import io
 import zipfile
 import logging
+import aiohttp
 
 # Set up logging
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+logger.debug(f"AZURE_OPENAI_ENDPOINT: {AZURE_OPENAI_ENDPOINT}")
+logger.debug(f"AZURE_OPENAI_DEPLOYMENT_NAME: {AZURE_OPENAI_DEPLOYMENT_NAME}")
+logger.debug(f"AZURE_OPENAI_API_VERSION: {AZURE_OPENAI_API_VERSION}")
+
 def debug_print(message):
     if st.session_state.debug_mode:
         st.write(f"DEBUG: {message}")
 
-# Initialize AsyncOpenAI client
-@st.cache_resource
-def get_openai_client():
-    return AzureOpenAI(
-        api_key=AZURE_OPENAI_API_KEY,
-        api_version=AZURE_OPENAI_API_VERSION,
-        azure_endpoint=AZURE_OPENAI_ENDPOINT
-    )
 
 async def send_to_openai_api_async(prompt: str, options: dict) -> str:
-    client = get_openai_client()
-    try:
-        completion = await client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT_NAME,
-            messages=[
+    async with aiohttp.ClientSession() as session:
+        headers = {
+            "Content-Type": "application/json",
+            "api-key": AZURE_OPENAI_API_KEY,
+        }
+        payload = {
+            "messages": [
                 {"role": "system", "content": DEFAULT_PROMPT_ROLE},
                 {"role": "user", "content": prompt}
             ],
-            temperature=options.get('Temperature', 0.7),
-            max_tokens=options.get('Max Tokens', 2000)
-        )
-        return completion.choices[0].message.content.strip()
-    except Exception as e:
-        error_message = f"Azure OpenAI API Error: {str(e)}"
-        logger.error(error_message)
-        if st.session_state.debug_mode:
-            st.error(error_message)
-        else:
-            st.error("An error occurred while processing your request. Please try again.")
-        return None
+            "temperature": options.get('Temperature', 0.7),
+            "max_tokens": options.get('Max Tokens', 2000)
+        }
+
+        # Correctly construct the URL
+        url = f"{AZURE_OPENAI_ENDPOINT}/openai/deployments/{AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version={AZURE_OPENAI_API_VERSION}"
+
+        try:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data['choices'][0]['message']['content'].strip()
+                else:
+                    error_message = f"Azure OpenAI API Error: {response.status} - {await response.text()}"
+                    logger.error(error_message)
+                    if st.session_state.debug_mode:
+                        st.error(error_message)
+                    else:
+                        st.error("An error occurred while processing your request. Please try again.")
+                    return None
+        except Exception as e:
+            error_message = f"Azure OpenAI API Error: {str(e)}"
+            logger.error(error_message)
+            if st.session_state.debug_mode:
+                st.error(error_message)
+            else:
+                st.error("An error occurred while processing your request. Please try again.")
+            return None
 
 async def process_article_async(title: str, content: str, options: dict,
                                 template_content: str = None) -> list:
@@ -76,21 +93,20 @@ async def process_article_async(title: str, content: str, options: dict,
 
     # Step 3: Translation
     if 'Translate' in actions:
-        for lang in languages:
-            translated_content = await prompt_utils.translate_content(processed_content, lang, options)
+        translation_tasks = [prompt_utils.translate_content(processed_content, lang, options) for lang in languages]
+        translated_contents = await asyncio.gather(*translation_tasks)
+
+        for lang, translated_content in zip(languages, translated_contents):
             debug_print(f"Translated content ({lang}): {translated_content[:100]}...")
-
-            # Convert markdown to Word
             docx_bytes = pandoc_utils.save_as_word(translated_content)
-
             results.append((docx_bytes, f"{title}_{lang}", translated_content, lang))
     else:
         # Convert markdown to Word
         docx_bytes = pandoc_utils.save_as_word(processed_content)
-
         results.append((docx_bytes, title, processed_content, 'Original'))
 
     return results
+
 
 async def generate_content(title: str, content: str, perspectives: list, options: dict) -> str:
     debug_print("Generating content")
@@ -106,6 +122,7 @@ async def generate_content(title: str, content: str, perspectives: list, options
         logger.error("Content generation failed or returned empty content")
         return content  # Return original content if generation fails
     return generated_content
+
 
 async def reauthor_content(content: str, template_content: str, perspectives: list, options: dict) -> str:
     debug_print("Reauthoring content")
@@ -132,10 +149,6 @@ async def reauthor_content(content: str, template_content: str, perspectives: li
         return content  # Return original content if reauthoring fails
     return reauthored_content
 
-async def format_to_template(content: str, template: str, options: dict) -> str:
-    debug_print("Formatting content to template")
-    prompt = f"Format the following content to match the provided template structure, maintaining the original information:\n\nContent:\n{content}\n\nTemplate:\n{template}"
-    return await send_to_openai_api_async(prompt, options)
 
 async def process_multiple_articles_async(titles, contents, options, template_content):
     all_results = []
@@ -153,6 +166,7 @@ async def process_multiple_articles_async(titles, contents, options, template_co
         progress_bar.progress(completed_operations / total_operations)
 
     return all_results
+
 
 def main():
     st.set_page_config(page_title="KB Dojo", layout="wide")
@@ -201,8 +215,8 @@ def main():
             /* Light mode */
             @media (prefers-color-scheme: light) {
                 .generated-content {
-                    --text-color: #0a0a0a;  /* Very dark gray, almost black */
-                    --header-color: #000000;  /* Pure black for headers */
+                    --text-color: #0a0a0a;
+                    --header-color: #000000;
                     --border-color: #cccccc;
                     --code-bg-color: #f0f0f0;
                     --code-text-color: #0a0a0a;
@@ -264,13 +278,16 @@ def main():
             "Template Used": template_file is not None,
         })
 
+
 async def process_single_article(title, content, options, template_content):
     with st.spinner('Generating KB article...'):
         return await process_article_async(title, content, options, template_content)
 
+
 async def process_multiple_articles(titles, contents, options, template_content):
     with st.spinner('Generating KB articles...'):
         return await process_multiple_articles_async(titles, contents, options, template_content)
+
 
 def display_results(results):
     st.subheader("Generated Articles")
@@ -290,6 +307,7 @@ def display_results(results):
     if len(results) > 1:
         create_zip_download(results)
 
+
 def create_zip_download(results):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
@@ -302,6 +320,7 @@ def create_zip_download(results):
         file_name="kb_articles.zip",
         mime="application/zip",
     )
+
 
 if __name__ == "__main__":
     pandoc_utils.ensure_pandoc()
